@@ -1,0 +1,15 @@
+audit sink on :9111   raw entries -> /tmp/oncall-audit.jsonl
+time      consumer               tool                           result
+----------------------------------------------------------------------------------------
+17:35:02  anonymous             -                              HTTP 401   no credential
+17:35:02  oncall-investigator   initialize                     HTTP 200   3ms
+17:35:02  oncall-investigator   notifications/initialized       HTTP 202   0ms
+17:35:02  oncall-investigator   (tool list)              ALLOW HTTP 200   group incident-response
+17:35:02  oncall-investigator   get-service-health       ALLOW HTTP 200   group incident-response
+17:35:02  oncall-investigator   get-error-summary        ALLOW HTTP 200   group incident-response
+17:35:02  oncall-investigator   create-incident          ALLOW HTTP 200   group incident-response
+17:35:02  oncall-investigator   rollback-deployment      DENY  HTTP 403   no matching rule
+17:35:02  oncall-operator       initialize                     HTTP 200   2ms
+17:35:02  oncall-operator       notifications/initialized       HTTP 202   2ms
+17:35:02  oncall-operator       (tool list)              ALLOW HTTP 200   group sre-oncall
+17:35:02  oncall-operator       rollback-deployment      ALLOW HTTP 200   group sre-oncall

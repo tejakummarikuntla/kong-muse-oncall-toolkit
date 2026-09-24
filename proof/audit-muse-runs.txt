@@ -1,0 +1,27 @@
+audit sink on :9111   raw entries -> /tmp/oncall-audit.jsonl
+time      consumer               tool                           result
+----------------------------------------------------------------------------------------
+17:31:47  oncall-investigator   initialize                     HTTP 200   6ms
+17:31:47  oncall-investigator   notifications/initialized       HTTP 202   1ms
+17:31:47  oncall-investigator   (tool list)              ALLOW HTTP 200   group incident-response
+17:31:52  oncall-investigator   get-error-summary        ALLOW HTTP 200   group incident-response
+17:31:52  oncall-investigator   list-deployments         ALLOW HTTP 200   group incident-response
+17:31:52  oncall-investigator   get-service-health       ALLOW HTTP 200   group incident-response
+17:31:57  oncall-investigator   get-service-health       ALLOW HTTP 200   group incident-response
+17:31:57  oncall-investigator   get-error-samples        ALLOW HTTP 200   group incident-response
+17:31:57  oncall-investigator   search-runbooks          ALLOW HTTP 200   group incident-response
+17:32:01  oncall-investigator   search-runbooks          ALLOW HTTP 200   group incident-response
+17:32:05  oncall-investigator   get-runbook              ALLOW HTTP 200   group incident-response
+17:32:23  oncall-investigator   create-incident          ALLOW HTTP 200   group incident-response
+17:32:35  oncall-investigator   create-incident          ALLOW HTTP 200   group incident-response
+17:33:26  oncall-operator       initialize                     HTTP 200   7ms
+17:33:26  oncall-operator       notifications/initialized       HTTP 202   2ms
+17:33:26  oncall-operator       (tool list)              ALLOW HTTP 200   group sre-oncall
+17:33:39  oncall-operator       get-service-health       ALLOW HTTP 200   group sre-oncall
+17:33:39  oncall-operator       get-service-health       ALLOW HTTP 200   group sre-oncall
+17:33:39  oncall-operator       get-runbook              ALLOW HTTP 200   group sre-oncall
+17:33:39  oncall-operator       list-deployments         ALLOW HTTP 200   group sre-oncall
+17:33:39  oncall-operator       get-error-summary        ALLOW HTTP 200   group sre-oncall
+17:33:42  oncall-operator       get-error-samples        ALLOW HTTP 200   group sre-oncall
+17:33:55  oncall-operator       rollback-deployment      ALLOW HTTP 200   group sre-oncall
+17:33:57  oncall-operator       get-service-health       ALLOW HTTP 200   group sre-oncall

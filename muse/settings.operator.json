@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "provider": "meta",
+  "model": "muse-spark-1.3-contributor",
+  "mcp_servers": {
+    "oncall": {
+      "transport": "streamable_http",
+      "url": "http://localhost:8000/ops-mcp",
+      "headers": {
+        "apikey": "${OPERATOR_KEY}"
+      },
+      "enabled": true,
+      "mode": "required"
+    }
+  }
+}

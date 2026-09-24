@@ -1,0 +1,353 @@
+# On-call toolkit for a coding agent, fronted by Kong AI Gateway 2.0.
+#
+# One MCP endpoint (/ops-mcp) exposes eight tools converted from the ops REST
+# API. Two identities see two different toolsets:
+#
+#   oncall-investigator  (group: incident-response)  7 tools, no rollback
+#   oncall-operator      (group: sre-oncall)         8 tools
+#
+# The split is NOT read-vs-write. The investigator can open an incident. What
+# it cannot do is change production. `rollback-deployment` is filtered out of
+# tools/list entirely for incident-response, so the agent never sees a tool it
+# would be refused on.
+#
+# Apply with:
+#   kongctl apply -f oncall-gateway.yaml
+# (apply = create/update only, so it will not delete unrelated entities on the
+# same gateway. `sync` would.)
+
+ai_gateway_mcp_servers:
+  - ref: oncall-mcp
+    ai_gateway: !lookup {id: !env AI_GATEWAY_ID}
+    name: oncall-mcp
+    display_name: "On-call toolkit"
+    type: conversion-listener
+    enabled: true
+    policies:
+      - !ref oncall-audit-log#name
+    access:
+      # REQUIRED whenever `access` is set. Without it the apply is rejected.
+      acl_attribute_type: consumer
+      auth_strategies:
+        - !ref oncall-key-auth#name
+      # Baseline for every tool that does not declare its own ACL.
+      default_tool_acls:
+        allow:
+          - incident-response
+          - sre-oncall
+    config:
+      # Tool paths resolve as: url + (tool.path minus the route prefix).
+      # /ops-mcp/deployments -> http://host.docker.internal:9110/v1/deployments
+      url: http://host.docker.internal:9110/v1
+      route:
+        paths:
+          - /ops-mcp
+      logging:
+        audits: true     # one audit entry per ACL decision, allow and deny
+        payloads: true   # tool arguments, so the post can show what was asked
+      server:
+        timeout: 30000
+
+    tools:
+      # ---------------------------------------------------------- diagnostics
+      - name: get-service-health
+        description: >-
+          Current health of one service: status, error rate against its SLO,
+          p99 latency against baseline, live version, and when it started
+          degrading. Use this first to confirm which service is actually
+          affected, and to rule third-party dependencies in or out.
+        method: GET
+        path: /ops-mcp/services/{service}/health
+        annotations:
+          title: Get service health
+          read_only_hint: true
+          idempotent_hint: true
+        parameters:
+          - name: service
+            in: path
+            required: true
+            schema:
+              type: string
+            description: >-
+              Service name, for example "checkout", "search", or
+              "payments-provider-api".
+
+      - name: list-deployments
+        description: >-
+          Deployment history, newest first: id, version, commit, author, change
+          summary, deploy time, and the deployment each one would roll back to.
+          Use this to find what shipped near the time an incident began.
+        method: GET
+        path: /ops-mcp/deployments
+        annotations:
+          title: List deployments
+          read_only_hint: true
+          idempotent_hint: true
+        parameters:
+          - name: service
+            in: query
+            required: false
+            schema:
+              type: string
+            description: Limit to one service. Omit to see every service.
+          - name: limit
+            in: query
+            required: false
+            schema:
+              type: integer
+            description: Maximum deployments to return. Defaults to 20.
+
+      - name: get-error-summary
+        description: >-
+          Error counts for a service in five-minute buckets, broken down by
+          error type, plus totals across the window. Use this to find the exact
+          onset time and to see which error type is actually growing rather
+          than which is merely loudest.
+        method: GET
+        path: /ops-mcp/errors/summary
+        annotations:
+          title: Get error summary
+          read_only_hint: true
+          idempotent_hint: true
+        parameters:
+          - name: service
+            in: query
+            required: false
+            schema:
+              type: string
+            description: Service name. Defaults to "checkout".
+          - name: minutes
+            in: query
+            required: false
+            schema:
+              type: integer
+            description: Window length in minutes. Defaults to 60.
+
+      - name: get-error-samples
+        description: >-
+          Concrete instances of one error type, with message, stack frames, and
+          runtime context such as connection-pool state. Use this after the
+          summary to learn the mechanism behind a spike.
+        method: GET
+        path: /ops-mcp/errors/samples
+        annotations:
+          title: Get error samples
+          read_only_hint: true
+          idempotent_hint: true
+        parameters:
+          - name: type
+            in: query
+            required: true
+            schema:
+              type: string
+            description: >-
+              Exact error type, for example "PaymentProviderTimeout". Take this
+              from get-error-summary rather than guessing.
+          - name: limit
+            in: query
+            required: false
+            schema:
+              type: integer
+            description: Maximum samples to return. Defaults to 5.
+
+      - name: search-runbooks
+        description: >-
+          Find runbooks by symptom, error type, or service. Returns metadata
+          only; call get-runbook to read the procedure.
+        method: GET
+        path: /ops-mcp/runbooks
+        annotations:
+          title: Search runbooks
+          read_only_hint: true
+          idempotent_hint: true
+        parameters:
+          - name: q
+            in: query
+            required: false
+            schema:
+              type: string
+            description: >-
+              Search term matched against runbook titles, symptoms, and
+              services. Omit to list everything.
+
+      - name: get-runbook
+        description: >-
+          Full text of one runbook, including its triage steps, resolution
+          criteria, and escalation path. Read the runbook before recommending
+          any remediation.
+        method: GET
+        path: /ops-mcp/runbooks/{runbook_id}
+        annotations:
+          title: Get runbook
+          read_only_hint: true
+          idempotent_hint: true
+        parameters:
+          - name: runbook_id
+            in: path
+            required: true
+            schema:
+              type: string
+            description: Runbook id, for example "rb-204".
+
+      # -------------------------------------------- safe write: investigators
+      # Deliberately allowed for incident-response. Opening an incident records
+      # the investigation; it changes nothing in production.
+      - name: create-incident
+        description: >-
+          Open an incident record with a title, affected service, severity, and
+          a summary of the evidence. Do this before recommending remediation so
+          the timeline is captured.
+        method: POST
+        path: /ops-mcp/incidents
+        annotations:
+          title: Create incident
+          read_only_hint: false
+          destructive_hint: false
+        access:
+          # A per-tool ACL fully replaces default_tool_acls, so both groups are
+          # restated here rather than inherited.
+          acls:
+            allow:
+              - incident-response
+              - sre-oncall
+        request_body:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - title
+                properties:
+                  title:
+                    type: string
+                    description: Short incident title.
+                  service:
+                    type: string
+                    description: Affected service name.
+                  severity:
+                    type: string
+                    description: One of "sev1", "sev2", "sev3".
+                  summary:
+                    type: string
+                    description: >-
+                      Evidence-backed summary: what changed, when errors began,
+                      and which signals connect them.
+
+      # ------------------------------------ production change: operators only
+      # The whole point of the demo. incident-response is not in the allow
+      # list, so this tool is filtered out of tools/list for an investigator
+      # and returns 403 if called anyway.
+      - name: rollback-deployment
+        description: >-
+          Roll a service back to the deployment that preceded the one named.
+          This changes production. Only run it when a runbook calls for it and
+          an incident is already open.
+        method: POST
+        path: /ops-mcp/deployments/{deployment_id}/rollback
+        annotations:
+          title: Roll back deployment
+          read_only_hint: false
+          destructive_hint: true
+          idempotent_hint: false
+        access:
+          acls:
+            allow:
+              - sre-oncall
+        parameters:
+          - name: deployment_id
+            in: path
+            required: true
+            schema:
+              type: string
+            description: >-
+              The deployment to roll back, for example "dep-482". It must
+              currently be live.
+        request_body:
+          required: false
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  incident_ref:
+                    type: string
+                    description: Incident id this rollback belongs to.
+                  reason:
+                    type: string
+                    description: Why the rollback is justified.
+
+# ------------------------------------------------------------- audit trail
+# Kong POSTs one log entry per request to the local sink. Denied calls are
+# recorded here and never reach the ops API at all, which is the point: the
+# refusal happens at the gateway, not in the tool.
+
+ai_gateway_policies:
+  - ref: oncall-audit-log
+    ai_gateway: !lookup {id: !env AI_GATEWAY_ID}
+    name: oncall-audit-log
+    display_name: "On-call audit log"
+    type: http-log
+    enabled: true
+    global: false
+    config:
+      http_endpoint: http://host.docker.internal:9111
+      method: POST
+      timeout: 10000
+      keepalive: 60000
+
+# --------------------------------------------------------------- identity
+
+ai_gateway_auth_strategies:
+  - ref: oncall-key-auth
+    ai_gateway: !lookup {id: !env AI_GATEWAY_ID}
+    name: oncall-key-auth
+    display_name: "On-call Key Auth"
+    type: key-auth
+    config:
+      key_names:
+        - apikey
+      key_in_header: true
+      hide_credentials: true
+
+ai_gateway_consumers:
+  - ref: oncall-investigator
+    ai_gateway: !lookup {id: !env AI_GATEWAY_ID}
+    name: oncall-investigator
+    display_name: "On-call Investigator"
+    type: api-key
+    credentials:
+      - ref: oncall-investigator-key
+        ai_gateway_consumer: !ref oncall-investigator#id
+        name: oncall-investigator-key
+        display_name: "On-call Investigator Key"
+        type: api-key
+        api_key: !secret {source: !env INVESTIGATOR_KEY}
+
+  - ref: oncall-operator
+    ai_gateway: !lookup {id: !env AI_GATEWAY_ID}
+    name: oncall-operator
+    display_name: "On-call Operator"
+    type: api-key
+    credentials:
+      - ref: oncall-operator-key
+        ai_gateway_consumer: !ref oncall-operator#id
+        name: oncall-operator-key
+        display_name: "On-call Operator Key"
+        type: api-key
+        api_key: !secret {source: !env OPERATOR_KEY}
+
+ai_gateway_consumer_groups:
+  - ref: incident-response
+    ai_gateway: !lookup {id: !env AI_GATEWAY_ID}
+    name: incident-response
+    display_name: "Incident Response"
+    consumers:
+      - !ref oncall-investigator#name
+
+  - ref: sre-oncall
+    ai_gateway: !lookup {id: !env AI_GATEWAY_ID}
+    name: sre-oncall
+    display_name: "SRE On-call"
+    consumers:
+      - !ref oncall-operator#name

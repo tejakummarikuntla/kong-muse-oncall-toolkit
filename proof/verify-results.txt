@@ -1,0 +1,27 @@
+MCP endpoint: http://localhost:8000/ops-mcp
+
+[anonymous] no credential
+  PASS  anonymous -> 401   | status=401
+
+[investigator] key in group incident-response
+  PASS  handshake -> 200   | status=200
+  PASS  tools/list shows 7 tools   | got 7: ['create-incident', 'get-error-samples', 'get-error-summary', 'get-runbook', 'get-service-health', 'list-deployments', 'search-runbooks']
+  PASS  rollback-deployment absent from tools/list
+  PASS  get-service-health -> degraded   | status=200
+  PASS  get-error-summary -> PaymentProviderTimeout present   | status=200
+  PASS  create-incident -> allowed   | status=200 incident=INC-1001
+  PASS  rollback-deployment -> 403   | status=403
+
+[operator] key in group sre-oncall
+  PASS  handshake -> 200   | status=200
+  PASS  tools/list shows 8 tools   | got 8: ['create-incident', 'get-error-samples', 'get-error-summary', 'get-runbook', 'get-service-health', 'list-deployments', 'rollback-deployment', 'search-runbooks']
+  PASS  rollback-deployment visible
+  PASS  rollback-deployment -> completed   | status=200 restored=dep-481
+
+[audit] Kong's http-log output
+  PASS  exactly one deny recorded   | got 1
+  PASS  deny names the caller   | oncall-investigator (identifier=username)
+  PASS  denied call never reached the ops API   | upstream_status='' proxy_latency=-1
+  PASS  same tool allowed for sre-oncall
+
+16/16 passed

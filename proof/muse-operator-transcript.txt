@@ -1,0 +1,14 @@
+muse: workspace root: /Users/teja.kummarikuntla/Dev/content/muse-oncall-toolkit (cwd default)
+muse: workspace trust: trusted source=run-flag
+Rollback justified and completed.
+
+Evidence per rb-204 triage:
+- `checkout` degraded since 2026-09-24T16:58:46Z: error rate 8.4% vs SLO 0.5%, p99 4180ms vs baseline 310ms.
+- `payments-provider-api` healthy: p99 288ms vs baseline 275ms — fault is ours, not provider.
+- Error summary: `PaymentProviderTimeout` 0 before 16:56:46Z, then 125→235/bucket; other types flat. Onset ~16:58Z.
+- Checkout deploy `dep-482` (2026.9.24-3, "reuse pooled connections for payments client") at 16:55:46Z — 3 min before onset, within rb-204's ~10 min window.
+- Samples: "pool exhausted, waited 3000ms", pool 8/8 active, version 2026.9.24-3 — matches deploy change.
+
+Action: rolled back `dep-482` → `dep-481` (version 2026.9.24-2) under `INC-1001`.
+Result: `status: completed`, `rollback_id: rb-912229ed`, `restored: dep-481`, completed 2026-09-24T17:33:55Z. Checkout health now `recovering`.
+

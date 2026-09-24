@@ -1,0 +1,21 @@
+muse: workspace root: /Users/teja.kummarikuntla/Dev/content/muse-oncall-toolkit (cwd default)
+muse: workspace trust: trusted source=run-flag
+Conclusion: the last checkout deployment `dep-482` caused the spike.
+
+Evidence:
+
+- `checkout` is degraded since `2026-09-24T16:58:46Z`: error rate 8.4% vs SLO 0.5%, p99 4180ms vs baseline 310ms, live version `2026.9.24-3`.
+- Last deployment is `dep-482` at `16:55:46Z` — `2026.9.24-3`, "checkout: reuse pooled connections for payments client" — ~3 min before degradation started.
+- Error breakdown: `PaymentProviderTimeout` was 0/5min before, then 125 in `16:56:46-17:01:46Z`, rising to sustained 235/5min (1500 total). Other types flat: `CardDeclined` ~55-60, `CartValidationError` 15, `SessionExpired` 10.
+- Samples on `2026.9.24-3`: "payments client: pool exhausted, waited 3000ms for a free connection", `pool_max_size: 8, pool_active: 8, pool_idle: 0`, stack `PaymentsClient.acquire (payments/pool.js:114)`.
+- Dependency ruled out: `payments-provider-api` healthy, error 0.1% vs SLO 1.0%, p99 288ms vs baseline 275ms.
+- Runbook `rb-204` "Payment provider timeouts in checkout": timeouts here almost always mean pool saturation, not provider down; if a deploy landed within ~10 min of onset, treat it as cause.
+
+Incident opened: `INC-1001` (sev2).
+
+What should be done, per `rb-204`:
+
+1. Roll back `checkout` from `dep-482` to `dep-481` first, debug afterwards. Rollback is safe/idempotent.
+2. Do not hot-patch pool sizing under load — a saturated pool does not recover on its own while traffic continues.
+3. Do not page `#payments-oncall` / fail open to queued-authorization — that path is only if provider latency is elevated, and it is not.
+
