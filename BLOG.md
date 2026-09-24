@@ -1,5 +1,5 @@
 ---
-title: Give Muse Code an On-Call Toolkit with Kong
+title: Give Muse Code an On-Call MCP Toolkit with Kong AI Gateway
 published: false
 tags: ai, webdev, architecture, tutorial
 ---
@@ -11,6 +11,8 @@ I wanted to find out whether a coding agent could do the first ten minutes of an
 That matters more than it sounds. You can set `shell_execute` and `file_write` to `ask` in your Muse settings and feel covered. Those settings do not put a prompt in front of an MCP tool call. If one of your MCP tools can roll back a production deployment, the agent can roll back a production deployment, and nothing in the client will stop it.
 
 So the question was never "can the agent investigate". It was "where does the boundary go". I put it in front of the tools, at **Kong AI Gateway**, and gave the same agent two identities to prove it holds.
+
+Everything below runs. The gateway config, the mock ops API, the verification script, and the real agent transcripts are all here: [github.com/tejakummarikuntla/kong-muse-oncall-toolkit](https://github.com/tejakummarikuntla/kong-muse-oncall-toolkit)
 
 ## What I evaluated first
 
@@ -77,6 +79,8 @@ Note that this is not a read versus write split. The investigator can write. It 
 - [Step 6: Prove it without the model](#step-6-prove-it-without-the-model)
 - [Things I ran into](#things-i-ran-into)
 - [Where I would take this next](#where-i-would-take-this-next)
+- [The part worth stealing](#the-part-worth-stealing)
+- [Run it yourself](#run-it-yourself)
 
 ## Step 1: Convert the REST API into MCP tools
 
@@ -475,5 +479,20 @@ The reusable shape is not the checkout scenario. It is this: your existing REST 
 Take any internal API you already run. Split its endpoints into diagnostics, safe writes, and production changes. Give the agent's identity the first two. Put the third behind a different identity. Then check the audit log for the tools it never got to call.
 
 The thing that surprised me was how much the agent could conclude without any ability to act. It produced a complete, evidence-backed diagnosis with a specific recommendation, and the recommendation was correct. Withholding the destructive tool cost nothing in diagnostic quality.
+
+## Run it yourself
+
+The whole thing is on GitHub: [github.com/tejakummarikuntla/kong-muse-oncall-toolkit](https://github.com/tejakummarikuntla/kong-muse-oncall-toolkit)
+
+```bash
+git clone https://github.com/tejakummarikuntla/kong-muse-oncall-toolkit
+cd kong-muse-oncall-toolkit
+cp .env.example .env     # add your gateway id and generate two keys
+./stack.sh               # ops API and audit sink
+./demo.sh up             # apply the gateway config
+./demo.sh verify         # 16 assertions, no model needed
+```
+
+`TRY.md` walks through poking the endpoint by hand with `./try.sh`, which does the MCP handshake for you, so you can watch a tool appear for one identity and vanish for the other before you spend a single agent prompt.
 
 If you try this on your own ops API, I would like to know which endpoint you found hardest to classify. The diagnostics were obvious and the destructive ones were obvious. It was the middle tier, the writes that are safe until they are not, where I kept changing my mind.
